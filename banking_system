@@ -1,0 +1,557 @@
+#include <iostream>
+#include <fstream>
+#include <map>
+#include <string>
+#include <iomanip>
+#include <limits>
+#include <stdexcept>
+
+using namespace std;
+
+#define MIN_BALANCE 500.0
+
+// -------------------- Exceptions --------------------
+
+class InsufficientFunds : public runtime_error
+{
+public:
+    InsufficientFunds() : runtime_error("Insufficient funds. Minimum balance must be maintained.") {}
+};
+
+class AccountNotFound : public runtime_error
+{
+public:
+    AccountNotFound() : runtime_error("Account not found.") {}
+};
+
+class InvalidAmount : public runtime_error
+{
+public:
+    InvalidAmount() : runtime_error("Amount must be greater than zero.") {}
+};
+
+class InvalidOpeningBalance : public runtime_error
+{
+public:
+    InvalidOpeningBalance()
+        : runtime_error("Initial balance must be at least the minimum balance.")
+    {
+    }
+};
+
+// -------------------- Account Class --------------------
+
+class Account
+{
+private:
+    long accountNumber;
+    string firstName;
+    string lastName;
+    double balance;
+
+    static long NextAccountNumber;
+
+public:
+    // Default constructor
+    Account()
+        : accountNumber(0), firstName(""), lastName(""), balance(0.0)
+    {
+    }
+
+    // Parameterized constructor
+    Account(const string& fname, const string& lname, double initialBalance);
+
+    // Getters
+    long getAccNo() const
+    {
+        return accountNumber;
+    }
+
+    string getFirstName() const
+    {
+        return firstName;
+    }
+
+    string getLastName() const
+    {
+        return lastName;
+    }
+
+    double getBalance() const
+    {
+        return balance;
+    }
+
+    // Account operations
+    void Deposit(double amount);
+    void Withdraw(double amount);
+
+    // Static functions
+    static void setLastAccountNumber(long accountNumber);
+    static long getLastAccountNumber();
+
+    // File output
+    friend ofstream& operator<<(ofstream& ofs, const Account& acc);
+
+    // File input
+    friend ifstream& operator>>(ifstream& ifs, Account& acc);
+
+    // Console output
+    friend ostream& operator<<(ostream& os, const Account& acc);
+};
+
+// Initialize static variable
+long Account::NextAccountNumber = 0;
+
+
+// -------------------- Account Implementation --------------------
+
+Account::Account(
+    const string& fname,
+    const string& lname,
+    double initialBalance)
+{
+    if (initialBalance < MIN_BALANCE)
+        throw InvalidOpeningBalance();
+
+    ++NextAccountNumber;
+
+    accountNumber = NextAccountNumber;
+    firstName = fname;
+    lastName = lname;
+    balance = initialBalance;
+}
+
+void Account::Deposit(double amount)
+{
+    if (amount <= 0)
+        throw InvalidAmount();
+
+    balance += amount;
+}
+
+void Account::Withdraw(double amount)
+{
+    if (amount <= 0)
+        throw InvalidAmount();
+
+    if (balance - amount < MIN_BALANCE)
+        throw InsufficientFunds();
+
+    balance -= amount;
+}
+
+void Account::setLastAccountNumber(long accountNumber)
+{
+    NextAccountNumber = accountNumber;
+}
+
+long Account::getLastAccountNumber()
+{
+    return NextAccountNumber;
+}
+
+
+// -------------------- File Operators --------------------
+
+ofstream& operator<<(ofstream& ofs, const Account& acc)
+{
+    ofs << acc.accountNumber << '\n';
+    ofs << acc.firstName << '\n';
+    ofs << acc.lastName << '\n';
+    ofs << fixed << setprecision(2) << acc.balance << '\n';
+
+    return ofs;
+}
+
+ifstream& operator>>(ifstream& ifs, Account& acc)
+{
+    ifs >> acc.accountNumber;
+    ifs >> acc.firstName;
+    ifs >> acc.lastName;
+    ifs >> acc.balance;
+
+    return ifs;
+}
+
+
+// -------------------- Console Operator --------------------
+
+ostream& operator<<(ostream& os, const Account& acc)
+{
+    os << "\n-----------------------------\n";
+    os << "First Name     : " << acc.firstName << '\n';
+    os << "Last Name      : " << acc.lastName << '\n';
+    os << "Account Number : " << acc.accountNumber << '\n';
+    os << "Balance        : Rs. "
+       << fixed << setprecision(2)
+       << acc.balance << '\n';
+    os << "-----------------------------\n";
+
+    return os;
+}
+
+
+// -------------------- Bank Class --------------------
+
+class Bank
+{
+private:
+    map<long, Account> accounts;
+
+    // Save all accounts to file
+    void SaveToFile();
+
+public:
+    Bank();
+
+    Account OpenAccount(
+        const string& fname,
+        const string& lname,
+        double balance);
+
+    Account BalanceEnquiry(long accountNumber);
+
+    Account Deposit(
+        long accountNumber,
+        double amount);
+
+    Account Withdraw(
+        long accountNumber,
+        double amount);
+
+    void CloseAccount(long accountNumber);
+
+    void ShowAllAccounts();
+
+    ~Bank();
+};
+
+
+// -------------------- Bank Implementation --------------------
+
+Bank::Bank()
+{
+    ifstream infile("Bank.data");
+
+    if (!infile)
+    {
+        // File doesn't exist yet.
+        return;
+    }
+
+    Account account;
+    long highestAccountNumber = 0;
+
+    // Correct way to read until EOF
+    while (infile >> account)
+    {
+        if (account.getAccNo() <= 0)
+            continue;
+
+        accounts[account.getAccNo()] = account;
+
+        if (account.getAccNo() > highestAccountNumber)
+            highestAccountNumber = account.getAccNo();
+    }
+
+    Account::setLastAccountNumber(highestAccountNumber);
+
+    infile.close();
+}
+
+
+void Bank::SaveToFile()
+{
+    ofstream outfile("Bank.data", ios::trunc);
+
+    if (!outfile)
+    {
+        throw runtime_error("Unable to save bank data.");
+    }
+
+    for (const auto& entry : accounts)
+    {
+        outfile << entry.second;
+    }
+
+    outfile.close();
+}
+
+
+Account Bank::OpenAccount(
+    const string& fname,
+    const string& lname,
+    double balance)
+{
+    Account account(fname, lname, balance);
+
+    accounts[account.getAccNo()] = account;
+
+    SaveToFile();
+
+    return account;
+}
+
+
+Account Bank::BalanceEnquiry(long accountNumber)
+{
+    auto itr = accounts.find(accountNumber);
+
+    if (itr == accounts.end())
+        throw AccountNotFound();
+
+    return itr->second;
+}
+
+
+Account Bank::Deposit(
+    long accountNumber,
+    double amount)
+{
+    auto itr = accounts.find(accountNumber);
+
+    if (itr == accounts.end())
+        throw AccountNotFound();
+
+    itr->second.Deposit(amount);
+
+    SaveToFile();
+
+    return itr->second;
+}
+
+
+Account Bank::Withdraw(
+    long accountNumber,
+    double amount)
+{
+    auto itr = accounts.find(accountNumber);
+
+    if (itr == accounts.end())
+        throw AccountNotFound();
+
+    itr->second.Withdraw(amount);
+
+    SaveToFile();
+
+    return itr->second;
+}
+
+
+void Bank::CloseAccount(long accountNumber)
+{
+    auto itr = accounts.find(accountNumber);
+
+    if (itr == accounts.end())
+        throw AccountNotFound();
+
+    accounts.erase(itr);
+
+    SaveToFile();
+}
+
+
+void Bank::ShowAllAccounts()
+{
+    if (accounts.empty())
+    {
+        cout << "\nNo accounts available.\n";
+        return;
+    }
+
+    cout << "\n========== ALL ACCOUNTS ==========\n";
+
+    for (const auto& entry : accounts)
+    {
+        cout << entry.second;
+    }
+}
+
+
+Bank::~Bank()
+{
+    // Destructor should not throw exceptions.
+    try
+    {
+        SaveToFile();
+    }
+    catch (...)
+    {
+        // Ignore saving errors during destruction.
+    }
+}
+
+
+// -------------------- Main Function --------------------
+
+int main()
+{
+    Bank b;
+
+    int choice;
+
+    string fname;
+    string lname;
+
+    long accountNumber;
+
+    double balance;
+    double amount;
+
+    cout << "====================================\n";
+    cout << "          BANKING SYSTEM\n";
+    cout << "====================================\n";
+
+    do
+    {
+        cout << "\n";
+        cout << "1. Open an Account\n";
+        cout << "2. Balance Enquiry\n";
+        cout << "3. Deposit\n";
+        cout << "4. Withdrawal\n";
+        cout << "5. Close an Account\n";
+        cout << "6. Show All Accounts\n";
+        cout << "7. Quit\n";
+
+        cout << "\nEnter your choice: ";
+
+        // Handle invalid menu input
+        while (!(cin >> choice))
+        {
+            cout << "Invalid input. Enter a number: ";
+
+            cin.clear();
+            cin.ignore(
+                numeric_limits<streamsize>::max(),
+                '\n');
+        }
+
+        try
+        {
+            switch (choice)
+            {
+                // -------------------- OPEN ACCOUNT --------------------
+                case 1:
+                {
+                    cout << "\nEnter First Name: ";
+                    cin >> fname;
+
+                    cout << "Enter Last Name: ";
+                    cin >> lname;
+
+                    cout << "Enter Initial Balance: ";
+                    cin >> balance;
+
+                    Account acc =
+                        b.OpenAccount(
+                            fname,
+                            lname,
+                            balance);
+
+                    cout << "\nAccount created successfully!\n";
+                    cout << acc;
+
+                    break;
+                }
+
+                // -------------------- BALANCE ENQUIRY --------------------
+                case 2:
+                {
+                    cout << "\nEnter Account Number: ";
+                    cin >> accountNumber;
+
+                    Account acc =
+                        b.BalanceEnquiry(
+                            accountNumber);
+
+                    cout << "\nAccount Details:\n";
+                    cout << acc;
+
+                    break;
+                }
+
+                // -------------------- DEPOSIT --------------------
+                case 3:
+                {
+                    cout << "\nEnter Account Number: ";
+                    cin >> accountNumber;
+
+                    cout << "Enter Deposit Amount: ";
+                    cin >> amount;
+
+                    Account acc =
+                        b.Deposit(
+                            accountNumber,
+                            amount);
+
+                    cout << "\nAmount deposited successfully!\n";
+                    cout << acc;
+
+                    break;
+                }
+
+                // -------------------- WITHDRAW --------------------
+                case 4:
+                {
+                    cout << "\nEnter Account Number: ";
+                    cin >> accountNumber;
+
+                    cout << "Enter Withdrawal Amount: ";
+                    cin >> amount;
+
+                    Account acc =
+                        b.Withdraw(
+                            accountNumber,
+                            amount);
+
+                    cout << "\nAmount withdrawn successfully!\n";
+                    cout << acc;
+
+                    break;
+                }
+
+                // -------------------- CLOSE ACCOUNT --------------------
+                case 5:
+                {
+                    cout << "\nEnter Account Number: ";
+                    cin >> accountNumber;
+
+                    b.CloseAccount(accountNumber);
+
+                    cout << "\nAccount closed successfully.\n";
+
+                    break;
+                }
+
+                // -------------------- SHOW ALL --------------------
+                case 6:
+                {
+                    b.ShowAllAccounts();
+
+                    break;
+                }
+
+                // -------------------- QUIT --------------------
+                case 7:
+                {
+                    cout << "\nThank you for using the Banking System!\n";
+
+                    break;
+                }
+
+                default:
+                {
+                    cout << "\nPlease enter a valid choice (1-7).\n";
+                }
+            }
+        }
+        catch (const exception& e)
+        {
+            cout << "\nError: " << e.what() << '\n';
+        }
+
+    } while (choice != 7);
+
+    return 0;
+}
